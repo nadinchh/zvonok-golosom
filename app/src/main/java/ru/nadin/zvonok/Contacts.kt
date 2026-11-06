@@ -11,7 +11,7 @@ object Contacts {
 
     fun stem(w: String): String {
         val s = w.lowercase().replace('ё', 'е')
-        for (e in endings) if (s.length - e.length >= 3 && s.endsWith(e)) return s.dropLast(e.length)
+        for (e in endings) if (s.length - e.length >= 2 && s.endsWith(e)) return s.dropLast(e.length)
         return s
     }
 
@@ -31,7 +31,7 @@ object Contacts {
                 val name = c.getString(0) ?: continue
                 val phone = c.getString(1) ?: continue
                 if (!seen.add(name)) continue
-                list += Person(name, phone, words(name).map { stem(it) }.toSet())
+                list += Person(name, phone, words(translit(name)).map { stem(it) }.toSet())
             }
         }
         // Подсказки: "жена = Татьяна" или "такси = 88001234567"
@@ -73,7 +73,7 @@ object Contacts {
                 val s = spoken.maxOfOrNull { w ->
                     when {
                         w == k -> 1.0
-                        k.length >= 4 && lev(w, k) == 1 -> 0.7
+                        k.length >= 3 && lev(w, k) == 1 -> 0.7
                         else -> 0.0
                     }
                 } ?: 0.0
@@ -86,8 +86,59 @@ object Contacts {
         return if (bestScore >= 0.7) best else null
     }
 
-    fun isYes(t: String) = Regex("\\b(да|ага|звони|давай|верно|конечно|угу|точно)\\b").containsMatchIn(t.lowercase())
-    fun isNo(t: String) = Regex("\\b(нет|не надо|отмена|стоп|другому|не тому)\\b").containsMatchIn(t.lowercase())
+    val yesWords = setOf("да", "ага", "звони", "давай", "верно", "конечно", "угу", "точно", "можно")
+    val noWords = setOf("нет", "не", "отмена", "стоп", "другому", "отбой")
+    private fun raw(t: String) = t.lowercase().replace('ё', 'е').split(Regex("[^а-яa-z0-9]+"))
+    /** Имя контакта по номеру (для входящих). */
+    fun nameFor(ctx: Context, number: String?): String? {
+        if (number.isNullOrBlank()) return null
+        return try {
+            ctx.contentResolver.query(
+                android.net.Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, android.net.Uri.encode(number)),
+                arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME), null, null, null
+            )?.use { if (it.moveToFirst()) it.getString(0) else null }
+        } catch (_: Exception) { null }
+    }
+
+    fun isNo(t: String) = raw(t).any { it in noWords }
+    fun isYes(t: String) = !isNo(t) && raw(t).any { it in yesWords }
+
+    private val lat = listOf("shch" to "щ", "sch" to "щ", "sh" to "ш", "ch" to "ч", "zh" to "ж", "kh" to "х", "ts" to "ц",
+        "ya" to "я", "yu" to "ю", "yo" to "е", "ia" to "я", "a" to "а", "b" to "б", "v" to "в", "w" to "в", "g" to "г", "d" to "д",
+        "e" to "е", "z" to "з", "i" to "и", "y" to "й", "k" to "к", "l" to "л", "m" to "м", "n" to "н", "o" to "о", "p" to "п",
+        "r" to "р", "s" to "с", "t" to "т", "u" to "у", "f" to "ф", "h" to "х", "c" to "к", "x" to "кс", "q" to "к", "j" to "дж")
+    /** Латинские имена (Mama, Sasha) → кириллица, чтобы их можно было назвать голосом. */
+    fun translit(name: String): String {
+        var s = name.lowercase()
+        for ((a, b) in lat) s = s.replace(a, b)
+        return s
+    }
+
+    /** Падежные формы слова: Оля → Оле, Олю, Оли… (для словаря распознавания). */
+    private fun forms(w: String): Set<String> {
+        val out = mutableSetOf(w)
+        if (w.length < 2) return out
+        val b = w.dropLast(1)
+        when (w.last()) {
+            'а' -> out += listOf(b + "е", b + "у", b + "ы", b + "и", b + "ой")
+            'я' -> out += listOf(b + "е", b + "ю", b + "и", b + "ей")
+            'й', 'ь' -> out += listOf(b + "ю", b + "я", b + "е", b + "и", b + "ем")
+            'о', 'е', 'и', 'у', 'ы', 'ю', 'э' -> {}
+            else -> out += listOf(w + "у", w + "а", w + "е", w + "ом")
+        }
+        return out
+    }
+
+    /** Словарь для распознавания: только имена из телефона + служебные слова. Сильно повышает точность. */
+    fun grammarWho(ctx: Context, people: List<Person>): String {
+        val ws = mutableSetOf<String>()
+        for (p in people) words(translit(p.name)).forEach { ws += forms(it) }
+        for ((a, _) in Aliases.get(ctx)) words(a).forEach { ws += forms(it) }
+        ws += filler; ws += noWords; ws += Info.words
+        return org.json.JSONArray((ws.filter { it.all { c -> c in 'а'..'я' } } + "[unk]")).toString()
+    }
+
+    fun grammarConfirm(): String = org.json.JSONArray((yesWords + noWords + "[unk]").toList()).toString()
 }
 
 object Aliases {

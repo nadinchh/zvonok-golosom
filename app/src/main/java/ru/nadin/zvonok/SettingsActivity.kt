@@ -7,6 +7,7 @@ import android.provider.Settings
 import android.text.InputType
 import android.util.TypedValue
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -22,9 +23,15 @@ class SettingsActivity : Activity() {
         fun label(s: String, size: Float = 16f) = TextView(this).apply { text = s; setTextSize(TypedValue.COMPLEX_UNIT_SP, size); setPadding(0, pad / 2, 0, pad / 2) }
 
         col.addView(label("1. Кнопка громкости", 20f))
-        col.addView(label("Включите службу «Звонок голосом: кнопка громкости» в Специальных возможностях. После этого долгое нажатие «громкость вниз» (около секунды) запускает голосовой звонок, даже на заблокированном экране."))
+        col.addView(label("Включите службу «Звонок голосом: кнопка громкости» в Специальных возможностях. После этого долгое нажатие «громкость вниз» (около секунды):\n• обычно — голосовой звонок (даже на заблокированном экране);\n• когда телефон звонит — ответить;\n• во время разговора — положить трубку.\n\nСоветуем там же включить «Кнопка питания завершает вызов» — тогда трубку можно положить и кнопкой питания."))
         col.addView(Button(this).apply { text = "Открыть специальные возможности"
             setOnClickListener { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) } })
+
+        col.addView(label("Звук", 20f))
+        col.addView(CheckBox(this).apply { text = "Громкая связь при разговоре (звук на полную)"; textSize = 18f
+            isChecked = Prefs.speaker(this@SettingsActivity); setOnCheckedChangeListener { _, v -> Prefs.setSpeaker(this@SettingsActivity, v) } })
+        col.addView(CheckBox(this).apply { text = "Называть вслух, кто звонит"; textSize = 18f
+            isChecked = Prefs.announce(this@SettingsActivity); setOnCheckedChangeListener { _, v -> Prefs.setAnnounce(this@SettingsActivity, v) } })
 
         col.addView(label("2. Подсказки «слово = кому звонить»", 20f))
         col.addView(label("По одной строке: слово, которое скажет папа, знак «=» и имя контакта как в телефоне (или номер). Например:\nжена = Татьяна\nтакси = 88002000000\nНадин = Надя дочка"))

@@ -15,6 +15,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.telecom.TelecomManager
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.WindowManager
@@ -37,7 +38,7 @@ class VoiceActivity : Activity(), RecognitionListener {
     private var candidate: Person? = null
     private var misses = 0
     private val h = Handler(Looper.getMainLooper())
-    private var pendingListen = false
+    private var savedMusicVol = -1
 
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
@@ -54,9 +55,13 @@ class VoiceActivity : Activity(), RecognitionListener {
             startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); finish(); return
         }
         people = Contacts.load(this)
+        // плохо слышит: подсказки на полную громкость, вернём как было при выходе
+        val am = getSystemService(AUDIO_SERVICE) as AudioManager
+        savedMusicVol = am.getStreamVolume(AudioManager.STREAM_MUSIC)
+        am.setStreamVolume(AudioManager.STREAM_MUSIC, am.getStreamMaxVolume(AudioManager.STREAM_MUSIC), 0)
         tts = TextToSpeech(this) { st ->
             if (st == TextToSpeech.SUCCESS) {
-                tts?.language = Locale("ru", "RU"); tts?.setSpeechRate(0.95f); ttsReady = true
+                tts?.language = Locale("ru", "RU"); tts?.setSpeechRate(0.8f); ttsReady = true
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(id: String?) {}
                     override fun onError(id: String?) { onSpoken(id) }
@@ -66,7 +71,7 @@ class VoiceActivity : Activity(), RecognitionListener {
             Speech.get(this) { m, err ->
                 runOnUiThread {
                     if (m == null) { show("Ошибка распознавания: $err") ; say("Не получилось включить распознавание речи", "end") }
-                    else ask()
+                    else { show("Кому позвонить?\n(или: сколько времени, какое число, батарея)"); ask() }
                 }
             }
         }
@@ -76,7 +81,7 @@ class VoiceActivity : Activity(), RecognitionListener {
 
     private fun say(text: String, id: String) {
         show(text)
-        if (ttsReady) tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, id)
+        if (ttsReady) tts?.speak(text, TextToSpeech.QUEUE_FLUSH, Bundle().apply { putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1f) }, id)
         else h.postDelayed({ onSpoken(id) }, 1200)
     }
 
@@ -92,16 +97,19 @@ class VoiceActivity : Activity(), RecognitionListener {
 
     private fun startOver() { stopListening(); misses = 0; candidate = null; ask() }
 
-    private fun listen() {
+    private fun listen(beep: Boolean = true) {
         val m = Speech.model ?: return
         stopListening()
-        try {
-            ToneGenerator(AudioManager.STREAM_MUSIC, 80).startTone(ToneGenerator.TONE_PROP_BEEP, 150)
+        if (beep) try {
+            ToneGenerator(AudioManager.STREAM_MUSIC, 100).startTone(ToneGenerator.TONE_PROP_BEEP, 150)
             (getSystemService(VIBRATOR_SERVICE) as Vibrator).vibrate(VibrationEffect.createOneShot(80, 120))
         } catch (_: Exception) {}
         h.postDelayed({
             try {
-                speech = SpeechService(Recognizer(m, 16000.0f), 16000.0f).also { it.startListening(this, 7000) }
+                val rec = try {
+                    Recognizer(m, 16000.0f, if (step == Step.WHO) Contacts.grammarWho(this, people) else Contacts.grammarConfirm())
+                } catch (_: Exception) { Recognizer(m, 16000.0f) }
+                speech = SpeechService(rec, 16000.0f).also { it.startListening(this, 8000) }
                 show(if (step == Step.WHO) "Слушаю: кому позвонить?" else "Позвонить ${candidate?.name}?\nДа или нет?")
             } catch (e: Exception) { say("Микрофон не работает", "end") }
         }, 250)
@@ -111,17 +119,21 @@ class VoiceActivity : Activity(), RecognitionListener {
 
     private fun heard(text: String) {
         stopListening()
-        if (text.isBlank()) { miss(); return }
+        val clean = text.replace("[unk]", "").trim()
+        if (clean.isBlank()) { miss(); return }
         when (step) {
             Step.WHO -> {
-                val p = Contacts.match(text, people)
-                if (p == null) { show("Услышала: $text"); miss(); return }
+                Info.answer(this, clean)?.let { say("$it. Кому позвонить?", "listen"); return }
+                // сказал только «позвони…» и задумался — слушаем дальше
+                if (Contacts.words(clean).isEmpty()) { listen(false); return }
+                val p = Contacts.match(clean, people)
+                if (p == null) { show("Услышала: $clean"); miss(); return }
                 misses = 0; candidate = p; step = Step.CONFIRM
                 say("Позвонить ${p.name}?", "listen")
             }
             Step.CONFIRM -> when {
-                Contacts.isYes(text) -> say("Звоню ${candidate?.name}", "call")
-                Contacts.isNo(text) -> { candidate = null; step = Step.WHO; say("Хорошо. Кому позвонить?", "listen") }
+                Contacts.isNo(clean) -> { candidate = null; step = Step.WHO; say("Хорошо. Кому позвонить?", "listen") }
+                Contacts.isYes(clean) -> say("Звоню ${candidate?.name}", "call")
                 else -> { misses++; if (misses >= 3) say("Не поняла. До свидания", "end") else say("Скажите да или нет. Позвонить ${candidate?.name}?", "listen") }
             }
         }
@@ -135,7 +147,10 @@ class VoiceActivity : Activity(), RecognitionListener {
 
     private fun call(p: Person) {
         try {
-            startActivity(Intent(Intent.ACTION_CALL, Uri.parse("tel:" + Uri.encode(p.phone))).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            Loud.apply(this)
+            startActivity(Intent(Intent.ACTION_CALL, Uri.parse("tel:" + Uri.encode(p.phone)))
+                .putExtra(TelecomManager.EXTRA_START_CALL_WITH_SPEAKERPHONE, Prefs.speaker(this))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         } catch (e: Exception) { say("Не получилось позвонить", "end"); return }
         finish()
     }
@@ -148,5 +163,9 @@ class VoiceActivity : Activity(), RecognitionListener {
     override fun onError(e: Exception?) { runOnUiThread { say("Ошибка микрофона", "end") } }
     override fun onTimeout() { runOnUiThread { if (speech != null) heard("") } }
 
-    override fun onDestroy() { stopListening(); tts?.shutdown(); super.onDestroy() }
+    override fun onDestroy() {
+        stopListening(); tts?.shutdown()
+        if (savedMusicVol >= 0) try { (getSystemService(AUDIO_SERVICE) as AudioManager).setStreamVolume(AudioManager.STREAM_MUSIC, savedMusicVol, 0) } catch (_: Exception) {}
+        super.onDestroy()
+    }
 }

@@ -31,7 +31,8 @@ class MainActivity : Activity() {
             addView(big, LinearLayout.LayoutParams(-1, 0, 1f))
             addView(settings, LinearLayout.LayoutParams(-1, -2))
         })
-        requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.READ_CONTACTS, Manifest.permission.CALL_PHONE), 1)
+        requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.READ_CONTACTS, Manifest.permission.CALL_PHONE,
+            Manifest.permission.READ_PHONE_STATE, Manifest.permission.READ_CALL_LOG, Manifest.permission.ANSWER_PHONE_CALLS), 1)
         Speech.get(this) { _, _ -> } // заранее распаковать модель речи
     }
 }
