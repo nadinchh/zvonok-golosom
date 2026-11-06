@@ -89,6 +89,7 @@ class KeyService : AccessibilityService() {
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
             }
         }
+        Speech.get(this) { _, _ -> } // модель речи заранее — звонок стартует мгновенно
         val f = IntentFilter(TelephonyManager.ACTION_PHONE_STATE_CHANGED)
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(phoneReceiver, f, Context.RECEIVER_EXPORTED) else registerReceiver(phoneReceiver, f)
     }

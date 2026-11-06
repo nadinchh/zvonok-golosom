@@ -10,19 +10,20 @@ import java.util.Locale
 
 object Prefs {
     private fun p(ctx: Context) = ctx.getSharedPreferences("p", 0)
-    fun speaker(ctx: Context) = p(ctx).getBoolean("speaker", true)
+    fun speaker(ctx: Context) = p(ctx).getBoolean("speaker", false)
     fun setSpeaker(ctx: Context, v: Boolean) = p(ctx).edit().putBoolean("speaker", v).apply()
     fun announce(ctx: Context) = p(ctx).getBoolean("announce", true)
     fun setAnnounce(ctx: Context, v: Boolean) = p(ctx).edit().putBoolean("announce", v).apply()
 }
 
-/** Громкость разговора на максимум и (если включено) громкая связь. */
+/** Если в настройках включено: громкая связь и громкость разговора на максимум. */
 object Loud {
     @Suppress("DEPRECATION")
     fun apply(ctx: Context) {
+        if (!Prefs.speaker(ctx)) return
         val am = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         try { am.setStreamVolume(AudioManager.STREAM_VOICE_CALL, am.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL), 0) } catch (_: Exception) {}
-        if (Prefs.speaker(ctx)) try { am.isSpeakerphoneOn = true } catch (_: Exception) {}
+        try { am.isSpeakerphoneOn = true } catch (_: Exception) {}
     }
 }
 

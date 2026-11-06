@@ -28,7 +28,7 @@ class SettingsActivity : Activity() {
             setOnClickListener { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) } })
 
         col.addView(label("Звук", 20f))
-        col.addView(CheckBox(this).apply { text = "Громкая связь при разговоре (звук на полную)"; textSize = 18f
+        col.addView(CheckBox(this).apply { text = "Громкая связь при разговоре"; textSize = 18f
             isChecked = Prefs.speaker(this@SettingsActivity); setOnCheckedChangeListener { _, v -> Prefs.setSpeaker(this@SettingsActivity, v) } })
         col.addView(CheckBox(this).apply { text = "Называть вслух, кто звонит"; textSize = 18f
             isChecked = Prefs.announce(this@SettingsActivity); setOnCheckedChangeListener { _, v -> Prefs.setAnnounce(this@SettingsActivity, v) } })
